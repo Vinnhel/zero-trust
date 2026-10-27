@@ -1,0 +1,38 @@
+# Port 3001/3002 dipublikasikan hanya untuk demo akses langsung ke service (ditolak 403).
+x-app: &app
+  build: .
+  volumes:
+    - appdata:/app/data
+    - ./config:/app/config
+
+services:
+  setup:
+    <<: *app
+    command: node scripts/setup.js --if-missing
+  gateway:
+    <<: *app
+    command: node gateway/index.js
+    environment:
+      HOST: 0.0.0.0
+      NILAI_URL: http://service-nilai:3001
+      TRANSKRIP_URL: http://service-transkrip:3002
+    ports: ["3000:3000"]
+    depends_on: { setup: { condition: service_completed_successfully } }
+  service-nilai:
+    <<: *app
+    command: node service-nilai/index.js
+    environment:
+      HOST: 0.0.0.0
+      GATEWAY_URL: http://gateway:3000
+    ports: ["3001:3001"]
+    depends_on: { setup: { condition: service_completed_successfully } }
+  service-transkrip:
+    <<: *app
+    command: node service-transkrip/index.js
+    environment:
+      HOST: 0.0.0.0
+    ports: ["3002:3002"]
+    depends_on: { setup: { condition: service_completed_successfully } }
+
+volumes:
+  appdata:

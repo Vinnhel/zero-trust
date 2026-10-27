@@ -1,0 +1,399 @@
+# ======================================================================
+#  PANDUAN DEMO SISTEM NILAI ZERO TRUST  (ekstensi: REST Client)
+#  Jalankan request DARI ATAS KE BAWAH. Klik "Send Request" di atas
+#  setiap blok. Lihat "Hasil benar" untuk mengecek apakah sudah sesuai.
+#
+#  Syarat: terminal sudah menjalankan  npm start
+#  Token hanya berlaku 10 menit. Jika ada hasil 401 "kedaluwarsa",
+#  ulangi LANGKAH 1 (login), lalu lanjutkan.
+# ======================================================================
+
+@gw = http://127.0.0.1:3000
+
+# Dipakai di LANGKAH 3 saja. Ganti dengan isi "gateway_secret"
+# dari file data/secrets.json (hapus tulisan ISI_SECRET_DI_SINI).
+@secret = ISI_SECRET_DI_SINI
+
+
+###
+# ############ LANGKAH 1 - LOGIN (jalankan 1.1 sampai 1.5 semuanya) ############
+# 1.1 Login dosen1
+# Hasil benar: 200 (ada access_token & refresh_token)
+# @name dosen1
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-DOSEN1-01
+
+{ "username": "dosen1", "password": "Dosen#123" }
+
+
+###
+# 1.2 Login dosen2
+# Hasil benar: 200
+# @name dosen2
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-DOSEN2-01
+
+{ "username": "dosen2", "password": "Dosen#123" }
+
+
+###
+# 1.3 Login mhs1
+# Hasil benar: 200
+# @name mhs1
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-MHS1-01
+
+{ "username": "mhs1", "password": "Mhs#123" }
+
+
+###
+# 1.4 Login admin
+# Hasil benar: 200
+# @name admin
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-ADMIN-01
+
+{ "username": "admin", "password": "Admin#123" }
+
+
+###
+# 1.5 Login dengan password SALAH
+# Hasil benar: 401
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-MHS1-01
+
+{ "username": "mhs1", "password": "salah" }
+
+
+###
+# 1.6 Login dari device TIDAK terdaftar
+# Hasil benar: 403
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-ASING
+
+{ "username": "mhs1", "password": "Mhs#123" }
+
+
+###
+# ############ LANGKAH 2 - REFRESH TOKEN & LOGOUT (pakai akun mhs3) ############
+# 2.1 Login mhs3
+# Hasil benar: 200
+# @name mhs3a
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-MHS3-01
+
+{ "username": "mhs3", "password": "Mhs#123" }
+
+
+###
+# 2.2 Refresh token -> dapat token baru (rotasi)
+# Hasil benar: 200
+# @name mhs3b
+POST {{gw}}/auth/refresh
+Content-Type: application/json
+X-Device-ID: DEV-MHS3-01
+
+{ "refresh_token": "{{mhs3a.response.body.refresh_token}}" }
+
+
+###
+# 2.3 Refresh token LAMA dipakai lagi (dianggap dicuri)
+# Hasil benar: 401
+POST {{gw}}/auth/refresh
+Content-Type: application/json
+X-Device-ID: DEV-MHS3-01
+
+{ "refresh_token": "{{mhs3a.response.body.refresh_token}}" }
+
+
+###
+# 2.4 Refresh token BARU ikut mati karena seluruh sesi dicabut
+# Hasil benar: 401
+POST {{gw}}/auth/refresh
+Content-Type: application/json
+X-Device-ID: DEV-MHS3-01
+
+{ "refresh_token": "{{mhs3b.response.body.refresh_token}}" }
+
+
+###
+# 2.5 Login mhs3 lagi (untuk demo logout)
+# Hasil benar: 200
+# @name mhs3c
+POST {{gw}}/auth/login
+Content-Type: application/json
+X-Device-ID: DEV-MHS3-01
+
+{ "username": "mhs3", "password": "Mhs#123" }
+
+
+###
+# 2.6 Access token masih berfungsi
+# Hasil benar: 200
+GET {{gw}}/nilai
+Authorization: Bearer {{mhs3c.response.body.access_token}}
+X-Device-ID: DEV-MHS3-01
+
+
+###
+# 2.7 Logout
+# Hasil benar: 200
+POST {{gw}}/auth/logout
+Content-Type: application/json
+
+{ "refresh_token": "{{mhs3c.response.body.refresh_token}}" }
+
+
+###
+# 2.8 Access token yang SAMA setelah logout
+# Hasil benar: 401
+GET {{gw}}/nilai
+Authorization: Bearer {{mhs3c.response.body.access_token}}
+X-Device-ID: DEV-MHS3-01
+
+
+###
+# ############ LANGKAH 3 - GATEWAY SECRET (akses langsung ke service) ############
+# (Sebelum ini, isi @secret di bagian atas file)
+# 3.1 Akses langsung ke Service Nilai, tanpa secret
+# Hasil benar: 403
+GET http://127.0.0.1:3001/nilai
+
+
+###
+# 3.2 Secret benar, tetapi tanpa token
+# Hasil benar: 401
+GET http://127.0.0.1:3001/nilai
+X-Gateway-Secret: {{secret}}
+
+
+###
+# 3.3 Secret benar, tetapi token palsu
+# Hasil benar: 401
+GET http://127.0.0.1:3001/nilai
+X-Gateway-Secret: {{secret}}
+Authorization: Bearer abc.def.ghi
+
+
+###
+# 3.4 Secret benar + token user asli, langsung ke endpoint sinkron
+# Hasil benar: 403
+POST http://127.0.0.1:3002/transkrip/sinkron
+X-Gateway-Secret: {{secret}}
+Authorization: Bearer {{dosen1.response.body.access_token}}
+Content-Type: application/json
+
+{ "entries": [] }
+
+
+###
+# ############ LANGKAH 4 - KEBIJAKAN AKSES PER ROLE ############
+# 4.1 mhs1 melihat nilai miliknya sendiri
+# Hasil benar: 200 (daftar kosong, "count": 0, karena nilai belum difinalisasi)
+GET {{gw}}/nilai
+Authorization: Bearer {{mhs1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+
+
+###
+# 4.2 mhs1 meminta nilai milik NIM lain
+# Hasil benar: 403
+GET {{gw}}/nilai?nim=2210002
+Authorization: Bearer {{mhs1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+
+
+###
+# 4.3 mhs1 mencoba mengubah nilai
+# Hasil benar: 403
+PUT {{gw}}/nilai/1
+Authorization: Bearer {{mhs1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+Content-Type: application/json
+
+{ "nilai": 100 }
+
+
+###
+# 4.4 dosen2 mengubah nilai di kelas milik dosen1
+# Hasil benar: 403
+PUT {{gw}}/nilai/1
+Authorization: Bearer {{dosen2.response.body.access_token}}
+X-Device-ID: DEV-DOSEN2-01
+Content-Type: application/json
+
+{ "nilai": 100 }
+
+
+###
+# 4.5 dosen1 melihat kelas 2 (bukan kelas yang ia ampu)
+# Hasil benar: 403
+GET {{gw}}/nilai?kelas_id=2
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+
+
+###
+# 4.6 dosen1 melihat kelas 1 (kelas yang ia ampu)
+# Hasil benar: 200 (3 baris)
+GET {{gw}}/nilai?kelas_id=1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+
+
+###
+# 4.7 admin melihat nilai (admin hanya boleh transkrip)
+# Hasil benar: 403
+GET {{gw}}/nilai
+Authorization: Bearer {{admin.response.body.access_token}}
+X-Device-ID: DEV-ADMIN-01
+
+
+###
+# 4.8 admin melihat transkrip NIM mana pun
+# Hasil benar: 200
+GET {{gw}}/transkrip/2210002
+Authorization: Bearer {{admin.response.body.access_token}}
+X-Device-ID: DEV-ADMIN-01
+
+
+###
+# 4.9 mhs1 melihat transkrip NIM lain
+# Hasil benar: 403
+GET {{gw}}/transkrip/2210002
+Authorization: Bearer {{mhs1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+
+
+###
+# ############ LANGKAH 5 - VERIFIKASI DEVICE ############
+# 5.1 Token dosen1 tetapi memakai device milik mahasiswa
+# Hasil benar: 403
+GET {{gw}}/nilai?kelas_id=1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+
+
+###
+# 5.2 Tanpa header X-Device-ID
+# Hasil benar: 403
+GET {{gw}}/nilai?kelas_id=1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+
+
+###
+# ############ LANGKAH 6 - JAM AKSES (ada 2 kali edit file config) ############
+# 6.1 dosen1 mengubah nilai pada jam normal
+# Hasil benar: 200
+PUT {{gw}}/nilai/1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+Content-Type: application/json
+
+{ "nilai": 88 }
+
+
+###
+# >>> SEKARANG: buka config/policy.config.json, ubah "start" dan "end"
+# >>> ke rentang yang TIDAK mencakup jam sekarang (WIB), mis. sekarang 14:10
+# >>> maka isi  "start": "16:00", "end": "17:00"  lalu tekan Ctrl+S.
+# 6.2 Ubah nilai di luar jam akses
+# Hasil benar: 403 (pesan: "Di luar jam akses ...")
+# @name jamLuar
+PUT {{gw}}/nilai/1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+Content-Type: application/json
+
+{ "nilai": 77 }
+
+
+###
+# 6.3 Finalisasi di luar jam akses (JANGAN khawatir, ini ditolak sehingga data aman)
+# Hasil benar: 403
+POST {{gw}}/kelas/1/finalisasi
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+
+
+###
+# >>> SEKARANG: kembalikan config ke  "start": "00:00", "end": "24:00"
+# >>> (atau 07:00 - 21:00 jika sekarang masih dalam jam itu), Ctrl+S.
+# 6.4 Ubah nilai setelah jam akses dikembalikan
+# Hasil benar: 200
+PUT {{gw}}/nilai/1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+Content-Type: application/json
+
+{ "nilai": 85 }
+
+
+###
+# ############ LANGKAH 7 - FINALISASI & SINKRON ANTAR-SERVICE ############
+# (Finalisasi hanya bisa 1x. Untuk mengulang demo: hentikan server,
+#  jalankan  npm run setup , lalu  npm start  lagi.)
+# 7.1 dosen1 memfinalisasi kelas 1
+# Hasil benar: 200 (ada "sinkron": upserted 3)
+POST {{gw}}/kelas/1/finalisasi
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+
+
+###
+# 7.2 mhs1 melihat nilai setelah difinalisasi
+# Hasil benar: 200 ("count": 1, hanya nilai milik mhs1 di kelas 1)
+GET {{gw}}/nilai
+Authorization: Bearer {{mhs1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+
+
+###
+# 7.3 mhs1 melihat transkrip sendiri
+# Hasil benar: 200 (berisi 1 mata kuliah hasil sinkron)
+GET {{gw}}/transkrip/2210001
+Authorization: Bearer {{mhs1.response.body.access_token}}
+X-Device-ID: DEV-MHS1-01
+
+
+###
+# 7.4 Ubah nilai yang sudah final
+# Hasil benar: 403
+PUT {{gw}}/nilai/1
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+Content-Type: application/json
+
+{ "nilai": 50 }
+
+
+###
+# 7.5 Token user (dosen1) memanggil /transkrip/sinkron lewat gateway
+# Hasil benar: 403
+POST {{gw}}/transkrip/sinkron
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+Content-Type: application/json
+
+{ "entries": [] }
+
+
+###
+# 7.6 Finalisasi kelas yang sama lagi
+# Hasil benar: 409
+POST {{gw}}/kelas/1/finalisasi
+Authorization: Bearer {{dosen1.response.body.access_token}}
+X-Device-ID: DEV-DOSEN1-01
+
+
+###
+# ############ LANGKAH 8 - AUDIT LOG ############
+# Bukan request. Buka terminal KEDUA lalu jalankan:   npm run audit 40
+# Di sana terlihat semua keputusan allow/deny beserta alasannya.
